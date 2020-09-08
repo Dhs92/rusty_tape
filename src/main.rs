@@ -4,36 +4,57 @@ use std::fs;
 use std::io::stdin;
 use std::io::Read;
 use std::process::exit;
-use std::str::from_utf8;
+//use std::str::from_utf8;
 use std::u16;
 
-#[derive(Debug, PartialEq)]
-enum Instruction {
-    // (op_num)
-    MoveLeft(usize),
-    MoveRight(usize),
-    Increment(usize),
-    Decrement(usize),
-    Input(usize),
-    Output(usize),
-    // (op_num, loop_count)
-    Open(usize, usize),
-    Close(usize, usize),
+#[cfg(debug_assertions)]
+macro_rules! dbg_println {
+    ($($x:tt)*) => { println!($($x)*) }
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! dbg_println {
+    ($($x:tt)*) => {}
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+enum Item {
+    MoveLeft,
+    MoveRight,
+    Increment,
+    Decrement,
+    Input,
+    Output,
+    // (loop_count)
+    Open(usize),
+    Close(usize),
+}
+
+// TODO rewrite parser to use Instruction struct
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct Instruction {
+    item: Item,
+    index: usize,
 }
 
 impl Instruction {
-    pub fn decode(op: char, loop_count: usize, pos: usize) -> Self {
-        use Instruction::*;
-        match op {
-            '<' => MoveLeft(pos),
-            '>' => MoveRight(pos),
-            '+' => Increment(pos),
-            '-' => Decrement(pos),
-            '.' => Output(pos),
-            ',' => Input(pos),
-            '[' => Open(pos, loop_count),
-            ']' => Close(pos, loop_count),
+    pub fn decode(op: char, loop_count: usize, index: usize) -> Self {
+        use Item::*;
+        let item: Item = match op {
+            '<' => MoveLeft,
+            '>' => MoveRight,
+            '+' => Increment,
+            '-' => Decrement,
+            '.' => Output,
+            ',' => Input,
+            '[' => Open(loop_count),
+            ']' => Close(loop_count),
             _ => unreachable!(),
+        };
+        
+        Self {
+            index,
+            item
         }
     }
 }
@@ -47,13 +68,13 @@ fn main() {
         eprintln!("Missing command line arguments")
     } else {
         for arg in &args {
-            println!("{}", *arg);
+            dbg_println!("{}", *arg);
             if *arg == "-c" {
                 let src: String = args[1..].join("");
-                println!("Parsing: {}", src);
+                dbg_println!("Parsing: {}", src);
                 instructions = parse(&src);
 
-                println!("{:#?}", instructions);
+                dbg_println!("{:#?}", instructions);
 
                 break;
             } else {
@@ -73,7 +94,7 @@ fn main() {
                     eprintln!("Could not read file: {}", e)
                 }
 
-                println!("Parsing: {}", buff);
+                dbg_println!("Parsing: {}", buff);
                 instructions = parse(&buff);
             }
         }
@@ -82,13 +103,11 @@ fn main() {
     }
 }
 
+// TODO use stack instead of loop counter
 fn parse(src: &str) -> Vec<Instruction> {
     let ops: Vec<char> = src
         .chars()
-        .filter(|c| match *c {
-            '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' => true,
-            _ => false,
-        })
+        .filter(|c| matches!(c, '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']'))
         .collect();
 
     let mut instructions = vec![];
@@ -108,7 +127,7 @@ fn parse(src: &str) -> Vec<Instruction> {
                 instructions.push(Instruction::decode(*op, loop_count, op_num));
             }
             _ => {
-                //println!("Pushing: {}", *op);
+                dbg_println!("Pushing: {}", *op);
                 instructions.push(Instruction::decode(*op, 0, op_num));
             }
         }
@@ -122,64 +141,69 @@ fn parse(src: &str) -> Vec<Instruction> {
 }
 
 fn execute(instructions: &[Instruction]) {
-    let mut mem: [u8; u16::MAX as usize] = [0; u16::MAX as usize];
-    let mut data_pointer: usize = 0;
-    let mut stack: Vec<usize> = vec![];
-
-    //println!("{:#?}", src);
-
-    let mut bookmark: usize = 0;
-    'main: loop {
-        'execution: for (pos, instruction) in instructions
-            .iter()
-            .skip(stack.pop().unwrap_or_else(|| bookmark))
-            .enumerate()
-        {
-            //println!("{:?}", instruction);
-            match *instruction {
-                Instruction::MoveRight(_) => {
-                    data_pointer += 1;
-                    eprintln!("Moving right");
-                }
-                Instruction::MoveLeft(_) => {
-                    data_pointer -= 1;
-                    eprintln!("Moving left");
-                }
-                Instruction::Increment(_) => {
-                    mem[data_pointer] += 1;
-                    eprintln!("Incrementing");
-                }
-                Instruction::Decrement(_) => {
-                    mem[data_pointer] -= 1;
-                    eprintln!("Decrementing");
-                }
-                Instruction::Output(_) => println!("{}", char::from(mem[data_pointer])),
-                Instruction::Input(_) => {
-                    mem[data_pointer] = stdin().bytes().next().unwrap().unwrap()
-                }
-                Instruction::Open(pos, _) => {
-                    if mem[data_pointer] != 0 {
-                        stack.push(pos + 1);
-                    } else {
-                        bookmark = match instructions.iter().position(|op| match (op, instruction) {
-                            (
-                                Instruction::Close(close_pos, close_loop_count),
-                                Instruction::Open(open_pos, open_loop_count),
-                            ) => *close_loop_count == *open_loop_count,
-                            (_, _) => false,
-                        }) {
-                            Some(close_pos) => close_pos,
-                            _ => unreachable!(),
-                        };
-                    }
-                }
-                Instruction::Close(pos, _) => {
-                    if mem[data_pointer] != 0 {
-                        continue 'main;
-                    }
-                }
-            }
-        }
-        break 'main;
+    for instruction in instructions {
+        dbg!(instruction);
     }
 }
+
+// fn execute(instructions: &[Instruction]) {
+//     let mut mem: [u8; u16::MAX as usize] = [0; u16::MAX as usize];
+//     let mut data_pointer: usize = 0;
+//     let mut stack: Vec<usize> = vec![];
+
+//     let mut bookmark: usize = 0;
+//     'main: loop {
+//         #[allow(unused_labels)] // symbol is for documentation
+//         'execution: for (pos, instruction) in instructions
+//             .iter()
+//             .skip(stack.pop().unwrap_or_else(|| bookmark))
+//             .enumerate()
+//         {
+//             dbg_println!("{:?}", instruction);
+//             match *instruction {
+//                 Instruction::MoveRight(_) => {
+//                     data_pointer += 1;
+//                     dbg_println!("Moving right");
+//                 }
+//                 Instruction::MoveLeft(_) => {
+//                     data_pointer -= 1;
+//                     dbg_println!("Moving left");
+//                 }
+//                 Instruction::Increment(_) => {
+//                     mem[data_pointer] += 1;
+//                     dbg_println!("Incrementing");
+//                 }
+//                 Instruction::Decrement(_) => {
+//                     mem[data_pointer] -= 1;
+//                     dbg_println!("Decrementing");
+//                 }
+//                 Instruction::Output(_) => println!("{}", char::from(mem[data_pointer])),
+//                 Instruction::Input(_) => {
+//                     mem[data_pointer] = stdin().bytes().next().unwrap().unwrap()
+//                 }
+//                 Instruction::Open(pos, _) => {
+//                     if mem[data_pointer] != 0 {
+//                         stack.push(pos + 1);
+//                     } else {
+//                         bookmark = match instructions.iter().position(|op| match (op, instruction) {
+//                             (
+//                                 Instruction::Close(close_pos, close_loop_count),
+//                                 Instruction::Open(open_pos, open_loop_count),
+//                             ) => *close_loop_count == *open_loop_count,
+//                             (_, _) => false,
+//                         }) {
+//                             Some(close_pos) => close_pos,
+//                             _ => unreachable!(),
+//                         };
+//                     }
+//                 }
+//                 Instruction::Close(pos, _) => {
+//                     if mem[data_pointer] != 0 {
+//                         continue 'main;
+//                     }
+//                 }
+//             }
+//         }
+//         break 'main;
+//     }
+// }
